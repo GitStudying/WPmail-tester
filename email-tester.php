@@ -3,7 +3,7 @@
 Plugin Name: WPEmail Tester
 Plugin URI: https://github.com/GitStudying/WPmail-tester
 Description: Sends a scheduled test email to a specified address with customizable frequency.
-Version: 0.0.5
+Version: 0.0.6
 Author: GitStudying
 Text Domain: wpemail-tester
 Author URI: 
@@ -23,9 +23,22 @@ function tester_deactivate() {
     wp_clear_scheduled_hook( 'tester_send_frequent_email' );
 }
 
-// 3. HELPER: Get seconds based on frequency setting
-// Dit helpt ons om de exacte tijd in seconden te berekenen voor de volgende run
-function dailytester_get_seconds() {
+// 3. SELF-HEALING CHECK (NIEUW)
+// Dit lost je probleem op: Als de planning mist maar wel zou moeten bestaan, maken we hem aan.
+add_action( 'admin_init', 'tester_ensure_schedule_integrity' );
+function tester_ensure_schedule_integrity() {
+    // Als er een email is opgeslagen...
+    if ( get_option( 'tester_email_address' ) ) {
+        // ...maar de taak staat NIET in de agenda
+        if ( ! wp_next_scheduled( 'tester_send_frequent_email' ) ) {
+            // Forceer een reschedule
+            tester_reschedule_cron();
+        }
+    }
+}
+
+// 4. HELPER: Get seconds based on frequency setting
+function tester_get_seconds() {
     $freq = get_option( 'tester_frequency', 'daily' );
     
     switch ( $freq ) {
@@ -42,7 +55,7 @@ function dailytester_get_seconds() {
     }
 }
 
-// 4. ADD CUSTOM CRON SCHEDULES
+// 5. ADD CUSTOM CRON SCHEDULES
 add_filter( 'cron_schedules', 'tester_add_cron_intervals' );
 function tester_add_cron_intervals( $schedules ) {
     
@@ -68,10 +81,10 @@ function tester_add_cron_intervals( $schedules ) {
     return $schedules;
 }
 
-// 5. ACTION HOOK
+// 6. ACTION HOOK
 add_action( 'tester_send_frequent_email', 'tester_send_email' );
 
-// 6. ADMIN MENU
+// 7. ADMIN MENU
 function tester_add_options_page() {
     add_submenu_page(
         'tools.php',
@@ -79,13 +92,13 @@ function tester_add_options_page() {
         'Email Tester',
         'manage_options',
         'tester_options',
-        'dailytester_render_options_page'
+        'tester_render_options_page'
     );
 }
 add_action( 'admin_menu', 'tester_add_options_page' );
 
-// 7. RENDER OPTIONS PAGE
-function dailytester_render_options_page() {    
+// 8. RENDER OPTIONS PAGE
+function tester_render_options_page() {    
     ?>    
     <div class="wrap">    
         <h2>Email Tester Settings</h2>
@@ -128,8 +141,6 @@ function dailytester_render_options_page() {
         
         if ( $next_run ) {
             $time_string = date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $next_run );
-            
-            // Bereken de resterende tijd voor de weergave
             $time_diff = human_time_diff( time(), $next_run );
             
             ?>
@@ -144,7 +155,7 @@ function dailytester_render_options_page() {
         } else {
              ?>
             <div class="notice notice-warning inline">
-                <p>No active schedule found. Please save your settings to activate the scheduler.</p>
+                <p>No active schedule found. The system will attempt to self-heal on next refresh.</p>
             </div>
             <?php
         }
@@ -198,9 +209,9 @@ function dailytester_render_options_page() {
     <?php    
 }
 
-// 8. REGISTER SETTINGS
-add_action( 'admin_init', 'dailytester_register_settings' );    
-function dailytester_register_settings() {    
+// 9. REGISTER SETTINGS
+add_action( 'admin_init', 'tester_register_settings' );    
+function tester_register_settings() {    
     register_setting( 'tester_options', 'tester_email_address', 'sanitize_email' );
     
     register_setting( 'tester_options', 'tester_frequency', array(
@@ -212,8 +223,8 @@ function dailytester_register_settings() {
     ));
 }   
 
-// 9. HOOK INTO OPTION UPDATE TO RESCHEDULE
-add_action( 'update_option_dailytester_frequency', 'tester_reschedule_cron', 10, 0 );
+// 10. HOOK INTO OPTION UPDATE TO RESCHEDULE
+add_action( 'update_option_tester_frequency', 'tester_reschedule_cron', 10, 0 );
 add_action( 'update_option_tester_custom_days', 'tester_reschedule_cron', 10, 0 );
 add_action( 'update_option_tester_email_address', 'tester_reschedule_cron', 10, 0 );
 
@@ -221,23 +232,22 @@ function tester_reschedule_cron() {
     // 1. Verwijder altijd eerst de oude taak
     wp_clear_scheduled_hook( 'tester_send_frequent_email' );
 
-    // 2. Als er geen email is, stoppen we (geen taak plannen)
+    // 2. Als er geen email is, stoppen we
     $email = get_option( 'tester_email_address' );
     if ( empty( $email ) ) return;
 
     // 3. Haal frequentie instelling op
     $freq = get_option( 'tester_frequency', 'daily' );
     
-    // 4. Haal exacte seconden op (via helper functie)
-    $seconds = dailytester_get_seconds();
+    // 4. Haal exacte seconden op
+    $seconds = tester_get_seconds();
 
-    // 5. Plan de taak in de TOEKOMST
-    // We gebruiken time() + $seconds. 
-    // Dus als je opslaat op Dinsdag 12:00 en kiest voor "Daily", wordt de eerste mail Woensdag 12:00 verstuurd.
+    // 5. Plan de taak
+    // We plannen de EERSTE run pas over X tijd (dus niet direct, om spam bij opslaan te voorkomen)
     wp_schedule_event( time() + $seconds, $freq, 'tester_send_frequent_email' );
 }
 
-// 10. SEND EMAIL FUNCTION
+// 11. SEND EMAIL FUNCTION
 function tester_send_email( $interactive = false ) {
   
     $to = get_option( 'tester_email_address' );
