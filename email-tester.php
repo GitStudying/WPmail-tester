@@ -3,7 +3,7 @@
 Plugin Name: Daily Email Tester
 Plugin URI: https://github.com/nanopost/daily-email-tester.php
 Description: Sends a daily test email to a specified address.
-Version: 0.0.1
+Version: 0.0.2
 Author: nanoPost
 Text Domain: daily-email-tester
 Author URI: https://nanopo.st/
@@ -44,53 +44,76 @@ function dailytester_render_options_page() {
     ?>	
     <div class="wrap">	
       <h2>Daily Email Tester Settings</h2>
-      <form method="post">
-        <?php if ( isset( $_POST['dailytester_send_test_email'] ) ) {	
+
+      <?php 
+      // 1. LOGICA VOOR HET VERSTUREN VAN TEST MAIL
+      if ( isset( $_POST['dailytester_send_test_email'] ) ) {	
         if ( check_admin_referer( 'dailytester_send_test_email', 'dailytester_send_test_email_nonce' ) ) {	
-            $sent = dailytester_send_email( true );		
-            if ( $sent ){
+            
+            // Haal eerst het adres op om te checken of het bestaat
+            $target_email = get_option( 'dailytester_email_address' );
+
+            if ( empty( $target_email ) ) {
+                // VALIDATIE: E-mail is leeg
                 ?>
-                <div class="notice notice-success is-dismissible">
-                    <p>Test email sent successfully!</p>
-                    <button type="button" class="notice-dismiss"><span class="screen-reader-text">Dismiss this notice.</span></button>
+                <div class="notice notice-warning is-dismissible">
+                    <p><strong>Let op:</strong> Er is geen e-mailadres ingesteld. Vul hieronder een adres in en klik op "Save Changes" voordat je een test verstuurt.</p>
                 </div>
                 <?php
             } else {
-                ?>
-                <div class="notice notice-error is-dismissible">
-                    <p>Error sending test email. Please check your email settings.</p>
-                    <button type="button" class="notice-dismiss"><span class="screen-reader-text">Dismiss this notice.</span></button>
-                </div>
-                <?php
+                // VALIDATIE: E-mail aanwezig, probeer te versturen
+                $sent = dailytester_send_email( true );		
+                if ( $sent ){
+                    ?>
+                    <div class="notice notice-success is-dismissible">
+                        <p>Test email sent successfully to <?php echo esc_html($target_email); ?>!</p>
+                    </div>
+                    <?php
+                } else {
+                    ?>
+                    <div class="notice notice-error is-dismissible">
+                        <p>Error sending test email. Please check your server email settings.</p>
+                    </div>
+                    <?php
                 }
             }
         }
-        ?>
-        <?php if ( !wp_next_scheduled( 'dailytester_send_daily_email' ) ) {
+      }
+
+      // 2. CHECK VOOR CRON JOB
+      if ( !wp_next_scheduled( 'dailytester_send_daily_email' ) ) {
             ?>
             <div class="notice notice-error is-dismissible">
-                <p>Daily job scheduler is missing. Deactivate, then reactive the Daily Email Tester plugin on the <a href="<?php echo esc_url( admin_url( 'plugins.php' ) ); ?>">plugins page</a>.</p>
-                <button type="button" class="notice-dismiss"><span class="screen-reader-text">Dismiss this notice.</span></button>
-                </div>
-                <?php 
-            }
-        ?>
+                <p>Daily job scheduler is missing. Deactivate, then reactive the Daily Email Tester plugin.</p>
+            </div>
+            <?php 
+      }
+      ?>
+
+      <form method="post" action="options.php">
         <?php settings_fields( 'dailytester_options' ); ?>	
         <?php do_settings_sections( 'dailytester_options' ); ?>	
-        <?php wp_nonce_field( 'dailytester_send_test_email', 'dailytester_send_test_email_nonce' ); ?>	
+        
         <table class="form-table">	
           <tr>	
             <th scope="row"><label for="dailytester_email_address">Email Address</label></th>	
-            <td><input type="email" id="dailytester_email_address" name="dailytester_email_address" value="<?php echo esc_attr( get_option( 'dailytester_email_address' ) ); ?>" /></td>	
+            <td>
+                <input type="email" id="dailytester_email_address" name="dailytester_email_address" value="<?php echo esc_attr( get_option( 'dailytester_email_address' ) ); ?>" class="regular-text" placeholder="bijv. info@example.com" required />
+            </td>	
           </tr>	
         </table>	
         <?php submit_button( 'Save Changes' ); ?>	
-        <hr />	
+      </form>
+
+      <hr />	
+
+      <form method="post">
         <h3>Test Email</h3>	
         <p>Use the button below to send a test email to the specified address:</p>	
-        <?php submit_button( 'Send Test Email Now', 'secondary', 'dailytester_send_test_email', false ); ?>	
         <?php wp_nonce_field( 'dailytester_send_test_email', 'dailytester_send_test_email_nonce' ); ?>	
+        <?php submit_button( 'Send Test Email Now', 'secondary', 'dailytester_send_test_email', false ); ?>	
       </form>	
+
     </div>	
     <?php	
 }
